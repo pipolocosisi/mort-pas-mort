@@ -74,14 +74,14 @@
 </style>
 </head>
 <body>
-  <h1>MORT<br>ou PAS MORT ?</h1>
+  <h1 id="title">MORT<br>ou PAS MORT ?</h1>
   <div class="hud" id="hud"><span id="progress">1/10</span><span id="score">Score : 0</span><span id="streak">🔥 0</span></div>
   <div class="stage" id="stage"></div>
   <div class="buttons" id="buttons">
-    <button class="choice" id="btn-alive"><span class="ico" aria-hidden="true">🫀</span><span class="lbl">Pas mort</span></button>
-    <button class="choice" id="btn-dead"><span class="ico" aria-hidden="true">💀</span><span class="lbl">Mort</span></button>
+    <button class="choice" id="btn-alive"><span class="ico" aria-hidden="true">🫀</span><span class="lbl" id="lbl-alive">Pas mort</span></button>
+    <button class="choice" id="btn-dead"><span class="ico" aria-hidden="true">💀</span><span class="lbl" id="lbl-dead">Mort</span></button>
   </div>
-  <p class="footer">Swipe ← pas mort · → mort (ou flèches du clavier).<br>Statuts vérifiés en direct sur Wikidata (liste de secours du 8 novembre 2026). Photos : Wikimedia Commons.</p>
+  <p class="footer" id="footer">Swipe ← pas mort · → mort (ou flèches du clavier).<br>Statuts vérifiés en direct sur Wikidata (liste de secours du 8 novembre 2026). Photos : Wikimedia Commons.</p>
 
 <script>
 // [nom, année de décès (null = vivant), photo Wikimedia, photo locale, identifiant Wikidata] — généré depuis Wikidata le 2026-11-08
@@ -341,9 +341,27 @@ const saveSeen = () => { try { localStorage.seen = JSON.stringify([...seen]); } 
 const q = new URLSearchParams(location.search);
 let defi = [...new Set((q.get("defi") || "").match(/[0-9a-z]{2}/g) || [])].map(x => CELEBS[parseInt(x, 36)]).filter(Boolean).slice(0, 100);
 const defiScore = Math.min(Math.max(parseInt(q.get("score")) || 0, 0), defi.length);
-const defiLink = () => `${GAME_URL}?defi=${deck.map(c => c.id.toString(36).padStart(2, "0")).join("")}&score=${score}`;
+const defiLink = () => `${GAME_URL}?defi=${deck.map(c => c.id.toString(36).padStart(2, "0")).join("")}&score=${score}&en=${intl ? 1 : 0}`;
 
-let ROUND = 10, intl = false;
+let ROUND = 10, intl = !navigator.language.startsWith("fr");
+if (q.has("en")) intl = q.get("en") === "1"; // un défi garde la langue de celui qui l'envoie
+const t = (fr, en) => intl ? en : fr;
+const EN_NAMES = { "Le roi Charles III": "King Charles III", "Pape François": "Pope Francis", "Le Dalaï-lama": "The Dalai Lama", "Boris Eltsine": "Boris Yeltsin", "Alan Rickman (Rogue)": "Alan Rickman" };
+const label = c => intl && EN_NAMES[c.name] || c.name;
+console.assert(Object.keys(EN_NAMES).every(n => CELEBS.some(c => c.name === n)), "EN_NAMES : nom inconnu");
+
+function applyLang() {
+  document.documentElement.lang = t("fr", "en");
+  document.title = t("Mort ou Pas Mort ?", "Dead or Not Dead?");
+  $("title").innerHTML = t("MORT<br>ou PAS MORT ?", "DEAD<br>or NOT DEAD?");
+  $("lbl-alive").textContent = t("Pas mort", "Not dead");
+  $("lbl-dead").textContent = t("Mort", "Dead");
+  $("btn-alive").ariaLabel = t("Pas mort", "Not dead");
+  $("btn-dead").ariaLabel = t("Mort", "Dead");
+  $("footer").innerHTML = t(
+    "Swipe ← pas mort · → mort (ou flèches du clavier).<br>Statuts vérifiés en direct sur Wikidata (liste de secours du 8 novembre 2026). Photos : Wikimedia Commons.",
+    "Swipe ← not dead · → dead (or arrow keys).<br>Statuses checked live on Wikidata (fallback list from November 8, 2026). Photos: Wikimedia Commons.");
+}
 let deck, i, score, streak, best, locked;
 
 // entre 30 % et 70 % de morts par manche (borné par ce qui reste), en évitant les célébrités déjà vues
@@ -359,13 +377,14 @@ function makeDeck() {
 
 function menu() {
   $("buttons").hidden = true; locked = true; $("hud").hidden = true;
+  applyLang();
   if (defi.length) {
     $("stage").innerHTML = `
       <div class="result ok">
-        <div class="big">🥊 DÉFI !</div>
-        <p>Ton pote a fait ${defiScore}/${defi.length} sur ces ${defi.length} célébrités. À toi !</p>
-        <button id="go">Relever le défi</button>
-        <button id="nope">Non merci, partie normale</button>
+        <div class="big">🥊 ${t("DÉFI !", "CHALLENGE!")}</div>
+        <p>${t(`Ton pote a fait ${defiScore}/${defi.length} sur ces ${defi.length} célébrités. À toi !`, `Your friend scored ${defiScore}/${defi.length} on these ${defi.length} celebrities. Your turn!`)}</p>
+        <button id="go">${t("Relever le défi", "Accept the challenge")}</button>
+        <button id="nope">${t("Non merci, partie normale", "No thanks, normal game")}</button>
       </div>`;
     $("go").onclick = () => play(defi);
     $("nope").onclick = () => { defi = []; menu(); };
@@ -373,13 +392,13 @@ function menu() {
   }
   $("stage").innerHTML = `
     <div class="result ok">
-      <div class="big">PRÊT ?</div>
+      <div class="big">${t("PRÊT ?", "READY?")}</div>
       <div class="toggle">
         <button id="fr" aria-pressed="${!intl}">🇫🇷 France</button>
         <button id="intl" aria-pressed="${intl}">🌍 International</button>
       </div>
-      <p>Combien de célébrités tu veux enterrer… ou pas ?</p>
-      <button id="quick">⚡ Partie rapide · 10</button>
+      <p>${t("Combien de célébrités tu veux enterrer… ou pas ?", "How many celebrities do you want to bury… or not?")}</p>
+      <button id="quick">⚡ ${t("Partie rapide", "Quick game")} · 10</button>
       <button id="marathon">🏃 Marathon · 100</button>
     </div>`;
   $("fr").onclick = () => { intl = false; menu(); };
@@ -399,7 +418,7 @@ function play(d) {
 
 function hud() {
   $("progress").textContent = `${Math.min(i + 1, ROUND)}/${ROUND}`;
-  $("score").textContent = `Score : ${score}`;
+  $("score").textContent = `${t("Score :", "Score:")} ${score}`;
   $("streak").textContent = `🔥 ${streak}`;
 }
 
@@ -414,10 +433,10 @@ function showCard() {
   if (next?.img) new Image().src = next.img; // précharge la photo suivante
   $("stage").innerHTML = `
     <div class="card" id="card">
-      <div class="stamp dead">MORT</div><div class="stamp alive">PAS MORT</div>
+      <div class="stamp dead">${t("MORT", "DEAD")}</div><div class="stamp alive">${t("PAS MORT", "NOT DEAD")}</div>
       ${c.img ? `<img class="photo" src="${c.img}" alt="" onerror="this.outerHTML='<div class=face>${face()}</div>'">` : `<div class="face">${face()}</div>`}
-      <div class="name">${c.name}</div>
-      <div class="hint">Alors, il/elle respire encore ?</div>
+      <div class="name">${label(c)}</div>
+      <div class="hint">${t("Alors, il/elle respire encore ?", "So… still breathing?")}</div>
     </div>`;
   drag($("card"));
 }
@@ -454,9 +473,9 @@ function answer(saysAlive) {
   setTimeout(() => {
     $("stage").innerHTML = `
       <div class="result ${ok ? "ok" : "ko"}">
-        <div class="big">${ok ? "BIEN VU 😎" : "RATÉ 🤡"}</div>
-        <p>${c.name}</p>
-        <p>${isAlive ? "🫀 Toujours vivant(e), merci pour lui/elle." : `💀 Décédé(e) en ${c.d}. RIP.`}</p>
+        <div class="big">${ok ? t("BIEN VU 😎", "NAILED IT 😎") : t("RATÉ 🤡", "WRONG 🤡")}</div>
+        <p>${label(c)}</p>
+        <p>${isAlive ? t("🫀 Toujours vivant(e), merci pour lui/elle.", "🫀 Still alive, good for them.") : t(`💀 Décédé(e) en ${c.d}. RIP.`, `💀 Died in ${c.d}. RIP.`)}</p>
       </div>`;
     setTimeout(() => { i++; i < ROUND ? showCard() : end(); }, 1400);
   }, 250);
@@ -465,21 +484,22 @@ function answer(saysAlive) {
 function end() {
   $("buttons").hidden = true;
   const pct = score / ROUND;
-  const verdict = pct >= 0.9 ? "Nécrologue de génie 🏆" : pct >= 0.6 ? "Pas mal pour un vivant 👍" : pct >= 0.3 ? "Tu lis pas les journaux toi 📰" : "Toi-même t'es sûr d'être vivant ? 🧟";
+  const verdict = pct >= 0.9 ? t("Nécrologue de génie 🏆", "Obituary genius 🏆") : pct >= 0.6 ? t("Pas mal pour un vivant 👍", "Not bad for a living person 👍") : pct >= 0.3 ? t("Tu lis pas les journaux toi 📰", "You don't read the news, do you? 📰") : t("Toi-même t'es sûr d'être vivant ? 🧟", "Are you sure YOU are alive? 🧟");
   $("stage").innerHTML = `
     <div class="result ok">
       <div class="big">${score}/${ROUND}</div>
-      <p>${verdict}</p><p>Meilleure série : 🔥 ${best}</p>
-      ${deck === defi ? `<p>${score > defiScore ? "Tu as battu ton pote 🥇" : score === defiScore ? "Égalité avec ton pote 🤝" : "Ton pote t'a battu 🥈"}</p>` : ""}
-      <button id="share">📣 Défier mes potes</button>
-      <button id="again">🔄 Rejouer</button>
+      <p>${verdict}</p><p>${t("Meilleure série :", "Best streak:")} 🔥 ${best}</p>
+      ${deck === defi ? `<p>${score > defiScore ? t("Tu as battu ton pote 🥇", "You beat your friend 🥇") : score === defiScore ? t("Égalité avec ton pote 🤝", "It's a tie 🤝") : t("Ton pote t'a battu 🥈", "Your friend beat you 🥈")}</p>` : ""}
+      <button id="share">📣 ${t("Défier mes potes", "Challenge my friends")}</button>
+      <button id="again">🔄 ${t("Rejouer", "Play again")}</button>
     </div>`;
   $("again").onclick = () => { defi = []; menu(); };
   $("share").onclick = async () => {
-    const text = `J'ai fait ${score}/${ROUND} à MORT ou PAS MORT ? 💀🫀 Mêmes célébrités pour toi, fais mieux : ${ON_GITHUB ? defiLink() : GAME_URL}`;
+    const link = ON_GITHUB ? defiLink() : GAME_URL;
+    const text = t(`J'ai fait ${score}/${ROUND} à MORT ou PAS MORT ? 💀🫀 Mêmes célébrités pour toi, fais mieux : ${link}`, `I scored ${score}/${ROUND} at DEAD or NOT DEAD? 💀🫀 Same celebrities for you, beat me: ${link}`);
     try { await navigator.share({ text }); } catch {
-      try { await navigator.clipboard.writeText(text); $("share").textContent = "✅ Copié, colle-le à tes potes !"; }
-      catch { $("share").textContent = "😬 Copie impossible"; }
+      try { await navigator.clipboard.writeText(text); $("share").textContent = t("✅ Copié, colle-le à tes potes !", "✅ Copied, paste it to your friends!"); }
+      catch { $("share").textContent = t("😬 Copie impossible", "😬 Couldn't copy"); }
     }
   };
 }
