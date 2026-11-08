@@ -6,7 +6,8 @@
 <title>Mort ou Pas Mort ?</title>
 <!-- installable sur l'écran d'accueil (« app » sans store) -->
 <link rel="manifest" href="manifest.webmanifest">
-<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
+<link rel="icon" type="image/png" href="favicon.png">
 <meta name="theme-color" content="#ffe94d">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -67,9 +68,10 @@
   .result .big { font-size: 40px; } .result p { font-family: system-ui, sans-serif; font-size: 18px; font-weight: 700; }
   .footer { font-family: system-ui, sans-serif; font-size: 12px; color: #333; text-align: center; max-width: 290px; }
   [hidden] { display: none !important; }
-  .mute { position: fixed; bottom: 10px; right: 10px; font-size: 16px; padding: 5px 8px; z-index: 10; }
-  .modes { flex-wrap: wrap; justify-content: center; }
-  .modes button { font-size: 13px; padding: 8px 9px; white-space: nowrap; }
+  .mute { position: fixed; top: 8px; right: 8px; font-size: 14px; padding: 3px 7px; box-shadow: 2px 2px 0 #111; z-index: 10; }
+  button small { display: block; font-family: system-ui, sans-serif; font-size: 12px; font-weight: 600; }
+  .lvl { padding: 7px 22px; min-width: 210px; }
+  .back { font-size: 14px; padding: 6px 14px; box-shadow: 2px 2px 0 #111; }
   .drop { position: fixed; top: -60px; pointer-events: none; z-index: 9; animation: fall 2.2s linear forwards; }
   @keyframes fall { to { transform: translateY(115vh) rotate(360deg); } }
   .pop { animation: pop .4s; } @keyframes pop { 0% { transform: scale(.6); } 70% { transform: scale(1.08); } }
@@ -452,17 +454,27 @@ function menu() {
         <button id="intl" aria-pressed="${intl}">🌍 International</button>
       </div>
       <button id="quick">⚡ ${t("Partie rapide", "Quick game")} · 10</button>
-      <p>🏃 Marathon · 100</p>
-      <div class="toggle modes">
-        <button id="hardcore" title="${t("Fin à la 1re erreur", "Game over at the 1st mistake")}">💀 Hardcore</button>
-        <button id="normal" title="${t("3 vies", "3 lives")}">❤️ ${t("3 vies", "3 lives")}</button>
-        <button id="easy" title="${t("Erreurs illimitées", "Unlimited mistakes")}">😌 ${t("Facile", "Easy")}</button>
-      </div>
+      <button id="marathon">🏃 Marathon · 100</button>
       <p>${t("Record de série :", "Best streak ever:")} 🔥 ${record}</p>
     </div>`;
   $("fr").onclick = () => { intl = false; menu(); };
   $("intl").onclick = () => { intl = true; menu(); };
-  for (const m in MODES) $(m).onclick = () => start(m);
+  $("quick").onclick = () => start("quick");
+  $("marathon").onclick = marathonMenu;
+}
+
+function marathonMenu() {
+  $("stage").innerHTML = `
+    <div class="result ok">
+      <div class="big">MARATHON</div>
+      <p>🏃 ${t("100 célébrités · choisis ta difficulté", "100 celebrities · pick your difficulty")}</p>
+      <button class="lvl" id="easy">😌 ${t("Facile", "Easy")}<small>${t("Erreurs illimitées", "Unlimited mistakes")}</small></button>
+      <button class="lvl" id="normal">❤️ Normal<small>${t("3 vies", "3 lives")}</small></button>
+      <button class="lvl" id="hardcore">💀 Hardcore<small>${t("1 erreur et c'est fini", "1 mistake and you're out")}</small></button>
+      <button id="back" class="back">← ${t("Retour", "Back")}</button>
+    </div>`;
+  for (const m of ["easy", "normal", "hardcore"]) $(m).onclick = () => start(m);
+  $("back").onclick = menu;
 }
 
 function start(m) { mode = m; ROUND = MODES[m].n; play(makeDeck()); }
