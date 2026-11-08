@@ -65,8 +65,17 @@
   }
   .result.ok { background: #3df5a7; } .result.ko { background: #ff3ea5; color: #fff; }
   .result .big { font-size: 40px; } .result p { font-family: system-ui, sans-serif; font-size: 18px; font-weight: 700; }
-  .footer { font-family: system-ui, sans-serif; font-size: 12px; color: #333; text-align: center; max-width: 340px; }
+  .footer { font-family: system-ui, sans-serif; font-size: 12px; color: #333; text-align: center; max-width: 290px; }
   [hidden] { display: none !important; }
+  .mute { position: fixed; bottom: 10px; right: 10px; font-size: 16px; padding: 5px 8px; z-index: 10; }
+  .modes { flex-wrap: wrap; justify-content: center; }
+  .modes button { font-size: 13px; padding: 8px 9px; white-space: nowrap; }
+  .drop { position: fixed; top: -60px; pointer-events: none; z-index: 9; animation: fall 2.2s linear forwards; }
+  @keyframes fall { to { transform: translateY(115vh) rotate(360deg); } }
+  .pop { animation: pop .4s; } @keyframes pop { 0% { transform: scale(.6); } 70% { transform: scale(1.08); } }
+  .shake { animation: shake .4s; } @keyframes shake { 20%, 60% { transform: translateX(-12px); } 40%, 80% { transform: translateX(12px); } }
+  .record { animation: pop .5s 2; color: #ff3ea5; text-shadow: 2px 2px 0 #111; font-size: 22px !important; }
+  @media (prefers-reduced-motion: reduce) { .drop { display: none; } .pop, .shake, .record { animation: none; } }
   .result { overflow-y: auto; }
   .toggle { display: flex; gap: 8px; }
   .toggle button { font-size: 15px; padding: 8px 12px; }
@@ -74,8 +83,9 @@
 </style>
 </head>
 <body>
+  <button id="mute" class="mute" aria-label="Son">🔊</button>
   <h1 id="title">MORT<br>ou PAS MORT ?</h1>
-  <div class="hud" id="hud"><span id="progress">1/10</span><span id="score">Score : 0</span><span id="streak">🔥 0</span></div>
+  <div class="hud" id="hud"><span id="progress">1/10</span><span id="score">Score : 0</span><span id="streak">🔥 0</span><span id="lives" hidden></span></div>
   <div class="stage" id="stage"></div>
   <div class="buttons" id="buttons">
     <button class="choice" id="btn-alive"><span class="ico" aria-hidden="true">🫀</span><span class="lbl" id="lbl-alive">Pas mort</span></button>
@@ -341,7 +351,7 @@ const saveSeen = () => { try { localStorage.seen = JSON.stringify([...seen]); } 
 const q = new URLSearchParams(location.search);
 let defi = [...new Set((q.get("defi") || "").match(/[0-9a-z]{2}/g) || [])].map(x => CELEBS[parseInt(x, 36)]).filter(Boolean).slice(0, 100);
 const defiScore = Math.min(Math.max(parseInt(q.get("score")) || 0, 0), defi.length);
-const defiLink = () => `${GAME_URL}?defi=${deck.map(c => c.id.toString(36).padStart(2, "0")).join("")}&score=${score}&en=${intl ? 1 : 0}`;
+const defiLink = () => `${GAME_URL}?defi=${deck.map(c => c.id.toString(36).padStart(2, "0")).join("")}&score=${score}&en=${intl ? 1 : 0}&m=${mode}`;
 
 let ROUND = 10, intl = !navigator.language.startsWith("fr");
 if (q.has("en")) intl = q.get("en") === "1"; // un défi garde la langue de celui qui l'envoie
@@ -364,6 +374,49 @@ function applyLang() {
 }
 let deck, i, score, streak, best, locked;
 
+// modes : nombre de cartes et vies (Infinity = erreurs illimitées)
+const MODES = { quick: { n: 10, lives: Infinity }, hardcore: { n: 100, lives: 1 }, normal: { n: 100, lives: 3 }, easy: { n: 100, lives: Infinity } };
+const modeName = m => ({ quick: t("Partie rapide", "Quick game"), hardcore: "Hardcore", normal: t("Normal (3 vies)", "Normal (3 lives)"), easy: t("Facile", "Easy") })[m];
+let mode = "quick", lives = Infinity, recordAtStart = 0;
+const defiMode = MODES[q.get("m")] ? q.get("m") : "quick";
+
+// sauvegardes dans ce navigateur (peuvent être indisponibles : le jeu marche sans)
+const load = (k, v) => { try { return localStorage[k] ?? v; } catch { return v; } };
+const store = (k, v) => { try { localStorage[k] = v; } catch {} };
+let record = parseInt(load("record", "0")) || 0, muted = load("muted", "0") === "1";
+
+// sons fabriqués par le navigateur (aucun fichier à charger)
+let ac;
+function beep(notes, type = "square") {
+  if (muted) return;
+  try {
+    ac ??= new (window.AudioContext || window.webkitAudioContext)();
+    let t0 = ac.currentTime;
+    for (const [f, d] of notes) {
+      const o = ac.createOscillator(), g = ac.createGain();
+      o.type = type; o.frequency.value = f;
+      g.gain.setValueAtTime(0.12, t0); g.gain.exponentialRampToValueAtTime(0.001, t0 + d);
+      o.connect(g).connect(ac.destination); o.start(t0); o.stop(t0 + d); t0 += d * 0.9;
+    }
+  } catch {}
+}
+const SFX = {
+  ok: () => beep([[660, .08], [990, .14]]),
+  ko: () => beep([[220, .15], [160, .3]], "sawtooth"),
+  record: () => beep([[523, .1], [659, .1], [784, .1], [1047, .3]]),
+  win: () => beep([[523, .12], [659, .12], [784, .12], [1047, .12], [784, .1], [1047, .4]]),
+  over: () => beep([[392, .3], [370, .3], [349, .3], [330, .7]], "sawtooth"),
+};
+
+function rain(emoji, n = 26) {
+  for (let k = 0; k < n; k++) {
+    const d = document.createElement("span");
+    d.className = "drop"; d.textContent = emoji; d.setAttribute("aria-hidden", "true");
+    d.style.left = Math.random() * 95 + "vw"; d.style.fontSize = 20 + Math.random() * 26 + "px"; d.style.animationDelay = Math.random() * .7 + "s";
+    document.body.append(d); setTimeout(() => d.remove(), 3000);
+  }
+}
+
 // entre 30 % et 70 % de morts par manche (borné par ce qui reste), en évitant les célébrités déjà vues
 function makeDeck() {
   const all = CELEBS.filter(c => !intl || !FR_ONLY.has(c.name));
@@ -383,10 +436,11 @@ function menu() {
       <div class="result ok">
         <div class="big">🥊 ${t("DÉFI !", "CHALLENGE!")}</div>
         <p>${t(`Ton pote a fait ${defiScore}/${defi.length} sur ces ${defi.length} célébrités. À toi !`, `Your friend scored ${defiScore}/${defi.length} on these ${defi.length} celebrities. Your turn!`)}</p>
+        <p>${t("Mode :", "Mode:")} ${modeName(defiMode)}</p>
         <button id="go">${t("Relever le défi", "Accept the challenge")}</button>
         <button id="nope">${t("Non merci, partie normale", "No thanks, normal game")}</button>
       </div>`;
-    $("go").onclick = () => play(defi);
+    $("go").onclick = () => { mode = defiMode; play(defi); };
     $("nope").onclick = () => { defi = []; menu(); };
     return;
   }
@@ -397,21 +451,25 @@ function menu() {
         <button id="fr" aria-pressed="${!intl}">🇫🇷 France</button>
         <button id="intl" aria-pressed="${intl}">🌍 International</button>
       </div>
-      <p>${t("Combien de célébrités tu veux enterrer… ou pas ?", "How many celebrities do you want to bury… or not?")}</p>
       <button id="quick">⚡ ${t("Partie rapide", "Quick game")} · 10</button>
-      <button id="marathon">🏃 Marathon · 100</button>
+      <p>🏃 Marathon · 100</p>
+      <div class="toggle modes">
+        <button id="hardcore" title="${t("Fin à la 1re erreur", "Game over at the 1st mistake")}">💀 Hardcore</button>
+        <button id="normal" title="${t("3 vies", "3 lives")}">❤️ ${t("3 vies", "3 lives")}</button>
+        <button id="easy" title="${t("Erreurs illimitées", "Unlimited mistakes")}">😌 ${t("Facile", "Easy")}</button>
+      </div>
+      <p>${t("Record de série :", "Best streak ever:")} 🔥 ${record}</p>
     </div>`;
   $("fr").onclick = () => { intl = false; menu(); };
   $("intl").onclick = () => { intl = true; menu(); };
-  $("quick").onclick = () => start(10);
-  $("marathon").onclick = () => start(100);
+  for (const m in MODES) $(m).onclick = () => start(m);
 }
 
-function start(n) { ROUND = n; play(makeDeck()); }
+function start(m) { mode = m; ROUND = MODES[m].n; play(makeDeck()); }
 
 function play(d) {
   deck = d; ROUND = d.length; $("hud").hidden = false;
-  i = 0; score = 0; streak = 0; best = 0;
+  i = 0; score = 0; streak = 0; best = 0; lives = MODES[mode].lives; recordAtStart = record;
   $("buttons").hidden = false;
   showCard();
 }
@@ -420,6 +478,8 @@ function hud() {
   $("progress").textContent = `${Math.min(i + 1, ROUND)}/${ROUND}`;
   $("score").textContent = `${t("Score :", "Score:")} ${score}`;
   $("streak").textContent = `🔥 ${streak}`;
+  $("lives").hidden = lives === Infinity;
+  $("lives").textContent = lives === Infinity ? "" : "❤️".repeat(lives) || "💀";
 }
 
 function grow(dx) {
@@ -468,27 +528,35 @@ function answer(saysAlive) {
   const card = $("card");
   card.style.transition = "transform .3s";
   card.style.transform = `translateX(${saysAlive ? -600 : 600}px) rotate(${saysAlive ? -30 : 30}deg)`;
-  if (ok) { score++; streak++; best = Math.max(best, streak); } else streak = 0;
+  if (ok) { score++; streak++; best = Math.max(best, streak); } else { streak = 0; lives--; }
+  // nouveau record : la série dépasse le record d'avant la partie (fêté une seule fois, pas à la toute 1re partie)
+  const newRecord = ok && recordAtStart > 0 && streak === recordAtStart + 1;
+  if (streak > record) { record = streak; store("record", record); }
   hud();
+  newRecord ? SFX.record() : ok ? SFX.ok() : SFX.ko();
   setTimeout(() => {
     $("stage").innerHTML = `
-      <div class="result ${ok ? "ok" : "ko"}">
+      <div class="result ${ok ? "ok pop" : "ko shake"}">
         <div class="big">${ok ? t("BIEN VU 😎", "NAILED IT 😎") : t("RATÉ 🤡", "WRONG 🤡")}</div>
         <p>${label(c)}</p>
         <p>${isAlive ? t("🫀 Toujours vivant(e), merci pour lui/elle.", "🫀 Still alive, good for them.") : t(`💀 Décédé(e) en ${c.d}. RIP.`, `💀 Died in ${c.d}. RIP.`)}</p>
+        ${newRecord ? `<p class="record">${t("NOUVEAU RECORD", "NEW RECORD")} 🔥 ${streak}</p>` : ""}
       </div>`;
-    setTimeout(() => { i++; i < ROUND ? showCard() : end(); }, 1400);
+    if (newRecord) rain("🔥", 18);
+    setTimeout(() => { lives <= 0 ? end(true) : ++i < ROUND ? showCard() : end(false); }, newRecord ? 1900 : 1400);
   }, 250);
 }
 
-function end() {
+function end(gameOver) {
   $("buttons").hidden = true;
+  gameOver ? (SFX.over(), rain("💀")) : (SFX.win(), rain("🎉"));
   const pct = score / ROUND;
   const verdict = pct >= 0.9 ? t("Nécrologue de génie 🏆", "Obituary genius 🏆") : pct >= 0.6 ? t("Pas mal pour un vivant 👍", "Not bad for a living person 👍") : pct >= 0.3 ? t("Tu lis pas les journaux toi 📰", "You don't read the news, do you? 📰") : t("Toi-même t'es sûr d'être vivant ? 🧟", "Are you sure YOU are alive? 🧟");
   $("stage").innerHTML = `
-    <div class="result ok">
-      <div class="big">${score}/${ROUND}</div>
-      <p>${verdict}</p><p>${t("Meilleure série :", "Best streak:")} 🔥 ${best}</p>
+    <div class="result ${gameOver ? "ko shake" : "ok pop"}">
+      <div class="big">${gameOver ? "GAME OVER" : `${score}/${ROUND}`}</div>
+      ${gameOver ? `<p>${t(`Éliminé à la carte ${i + 1} · score ${score}/${ROUND}`, `Out at card ${i + 1} · score ${score}/${ROUND}`)}</p>` : ""}
+      <p>${verdict}</p><p>${t("Meilleure série :", "Best streak:")} 🔥 ${best} · ${t("record", "record")} 🔥 ${record}</p>
       ${deck === defi ? `<p>${score > defiScore ? t("Tu as battu ton pote 🥇", "You beat your friend 🥇") : score === defiScore ? t("Égalité avec ton pote 🤝", "It's a tie 🤝") : t("Ton pote t'a battu 🥈", "Your friend beat you 🥈")}</p>` : ""}
       <button id="share">📣 ${t("Défier mes potes", "Challenge my friends")}</button>
       <button id="again">🔄 ${t("Rejouer", "Play again")}</button>
@@ -505,6 +573,9 @@ function end() {
 }
 
 $("btn-dead").onclick = () => answer(false);
+const muteIcon = () => { $("mute").textContent = muted ? "🔇" : "🔊"; $("mute").ariaLabel = muted ? t("Activer le son", "Sound on") : t("Couper le son", "Sound off"); };
+$("mute").onclick = () => { muted = !muted; store("muted", muted ? "1" : "0"); muteIcon(); };
+muteIcon();
 $("btn-alive").onclick = () => answer(true);
 document.onkeydown = e => { if (e.key === "ArrowLeft") answer(true); if (e.key === "ArrowRight") answer(false); };
 menu();
