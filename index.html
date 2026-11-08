@@ -1,0 +1,412 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>Mort ou Pas Mort ?</title>
+<style>
+  :root { color-scheme: light; } /* sinon le mode sombre rend le texte des boutons blanc */
+  * { box-sizing: border-box; margin: 0; }
+  body {
+    font-family: "Arial Black", Impact, system-ui, sans-serif;
+    background: #ffe94d;
+    background-image: radial-gradient(#000 1px, transparent 1px);
+    background-size: 18px 18px;
+    color: #111; min-height: 100dvh; overflow: hidden;
+    display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 12px 16px;
+    user-select: none; -webkit-user-select: none;
+  }
+  h1 { font-size: clamp(28px, 8vw, 44px); transform: rotate(-3deg); text-align: center; line-height: 1;
+       text-shadow: 3px 3px 0 #ff3ea5; }
+  .hud { display: flex; gap: 10px; font-size: 15px; }
+  .hud span { background: #fff; border: 3px solid #111; padding: 4px 10px; border-radius: 99px; box-shadow: 3px 3px 0 #111; }
+  .stage { position: relative; width: min(340px, 90vw); height: clamp(300px, 100dvh - 370px, 440px); }
+  .card {
+    position: absolute; inset: 0; background: #fff; border: 4px solid #111; border-radius: 22px;
+    box-shadow: 8px 8px 0 #111; display: flex; flex-direction: column; align-items: center;
+    justify-content: center; gap: 14px; padding: 20px; text-align: center; touch-action: none; cursor: grab;
+  }
+  .card .face { font-size: 90px; }
+  .card .photo { width: min(190px, 26dvh); height: min(190px, 26dvh); object-fit: cover; object-position: top; border-radius: 50%; border: 4px solid #111; background: #ffe94d; pointer-events: none; }
+  .card .name { font-size: clamp(26px, 7vw, 34px); line-height: 1.05; }
+  .card .hint { font-family: system-ui, sans-serif; font-size: 15px; color: #555; }
+  .stamp { position: absolute; top: 24px; font-size: 26px; padding: 4px 12px; border: 4px solid; border-radius: 10px; opacity: 0; }
+  .stamp.dead { right: 18px; color: #111; transform: rotate(14deg); }
+  .stamp.alive { left: 18px; color: #00a86b; transform: rotate(-14deg); }
+  .buttons { display: flex; gap: 44px; }
+  button {
+    font: inherit; font-size: 18px; border: 4px solid #111; border-radius: 99px; padding: 12px 20px;
+    box-shadow: 4px 4px 0 #111; cursor: pointer; background: #fff; color: #111;
+  }
+  button:active { transform: translate(3px, 3px); box-shadow: 1px 1px 0 #111; }
+  .choice { all: unset; cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 8px; font-size: 17px; }
+  .choice .ico {
+    width: 84px; height: 84px; border-radius: 50%; border: 4px solid #111; box-shadow: 5px 5px 0 #111;
+    display: grid; place-items: center; font-size: 40px; transition: scale .1s, box-shadow .1s, translate .1s;
+  }
+  #btn-alive .ico { background: #3df5a7; rotate: -8deg; }
+  #btn-dead .ico { background: #222; rotate: 8deg; }
+  .choice .lbl { background: #fff; border: 3px solid #111; border-radius: 99px; padding: 2px 12px; }
+  .choice:hover .ico { animation: wiggle .35s; }
+  .choice:active .ico { translate: 4px 4px; box-shadow: 1px 1px 0 #111; }
+  .choice:focus-visible .ico { outline: 4px dashed #ff3ea5; outline-offset: 4px; }
+  @keyframes wiggle { 25% { transform: rotate(-12deg); } 75% { transform: rotate(12deg); } }
+  .result {
+    position: absolute; inset: 0; border: 4px solid #111; border-radius: 22px; box-shadow: 8px 8px 0 #111;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px;
+    padding: 20px; text-align: center;
+  }
+  .result.ok { background: #3df5a7; } .result.ko { background: #ff3ea5; color: #fff; }
+  .result .big { font-size: 40px; } .result p { font-family: system-ui, sans-serif; font-size: 18px; font-weight: 700; }
+  .footer { font-family: system-ui, sans-serif; font-size: 12px; color: #333; text-align: center; max-width: 340px; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+  <h1>MORT<br>ou PAS MORT ?</h1>
+  <div class="hud"><span id="progress">1/10</span><span id="score">Score : 0</span><span id="streak">🔥 0</span></div>
+  <div class="stage" id="stage"></div>
+  <div class="buttons" id="buttons">
+    <button class="choice" id="btn-alive"><span class="ico" aria-hidden="true">🫀</span><span class="lbl">Pas mort</span></button>
+    <button class="choice" id="btn-dead"><span class="ico" aria-hidden="true">💀</span><span class="lbl">Mort</span></button>
+  </div>
+  <p class="footer">Swipe ← pas mort · → mort (ou flèches du clavier).<br>Infos Wikidata du 8 novembre 2026 : si quelqu'un est parti depuis, c'est pas notre faute. Photos : Wikimedia Commons.</p>
+
+<script>
+// [nom, année de décès (null = vivant), photo Wikimedia, photo locale] — généré depuis Wikidata le 2026-11-08
+// shortcut: statuts figés à cette date, relancer data/fetch.py (python3 data/fetch.py data/list.txt data.json) puis recoller la liste
+// photos liées chez Wikimedia (sur GitHub Pages ou avec #wikimedia), sinon dossier photos/ (seule option sur l'hébergement Claude)
+const ON_GITHUB = location.hostname.endsWith("github.io");
+const LINKED = ON_GITHUB || location.hash === "#wikimedia";
+const CELEBS = [
+  ["Jean-Pascal (Star Ac)", null, null, null],
+  ["Chuck Norris", 2026, "https://upload.wikimedia.org/wikipedia/commons/thumb/3/30/Chuck_Norris_May_2015.jpg/330px-Chuck_Norris_May_2015.jpg", "photos/chuck-norris.jpg"],
+  ["Filip (2Be3)", 2009, "https://upload.wikimedia.org/wikipedia/commons/thumb/f/f7/Filip_Nikolic_C%C3%A9sars_1998.jpg/330px-Filip_Nikolic_C%C3%A9sars_1998.jpg", "photos/filip-2be3.jpg"],
+  ["Michel Fugain", null, "https://upload.wikimedia.org/wikipedia/commons/thumb/8/86/Michel_Fugain_2011.jpg/330px-Michel_Fugain_2011.jpg", "photos/michel-fugain.jpg"],
+  ["Gilbert Montagné", null, "https://upload.wikimedia.org/wikipedia/commons/thumb/5/5a/Gm01362.jpg/330px-Gm01362.jpg", "photos/gilbert-montagne.jpg"],
+  ["Michel Sardou", null, "https://upload.wikimedia.org/wikipedia/commons/thumb/1/1e/Michel_Sardou_2014.jpg/330px-Michel_Sardou_2014.jpg", "photos/michel-sardou.jpg"],
+  ["Laurent Voulzy", null, "https://upload.wikimedia.org/wikipedia/commons/thumb/2/2e/Voulzy_Concert_Belle-Ile_%282%29.jpg/330px-Voulzy_Concert_Belle-Ile_%282%29.jpg", "photos/laurent-voulzy.jpg"],
+  ["Thierry Ardisson", 2025, "https://upload.wikimedia.org/wikipedia/commons/thumb/8/8f/ARDISSON_CANAL%2B_024_%28cropped%29.jpg/330px-ARDISSON_CANAL%2B_024_%28cropped%29.jpg", "photos/thierry-ardisson.jpg"],
+  ["Brigitte Bardot", 2025, "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e1/Brigitte_Bardot_-_1962.jpg/330px-Brigitte_Bardot_-_1962.jpg", "photos/brigitte-bardot.jpg"],
+  ["Jean Rochefort", 2017, "https://upload.wikimedia.org/wikipedia/commons/thumb/a/a2/Jean_Rochefort_2013.jpg/330px-Jean_Rochefort_2013.jpg", "photos/jean-rochefort.jpg"],
+  ["Michel Drucker", null, "https://upload.wikimedia.org/wikipedia/commons/thumb/2/2a/MichelDrucker-StudioHarcourt-1987.png/330px-MichelDrucker-StudioHarcourt-1987.png", "photos/michel-drucker.png"],
+  ["PPDA", null, "https://upload.wikimedia.org/wikipedia/commons/thumb/c/c0/PPDA_Cannes_2016.jpg/330px-PPDA_Cannes_2016.jpg", "photos/ppda.jpg"],
+  ["Gérard Depardieu", null, "https://upload.wikimedia.org/wikipedia/commons/thumb/6/6d/G%C3%A9rard_Depardieu_%28Berlin_Film_Festival_2010%29.jpg/330px-G%C3%A9rard_Depardieu_%28Berlin_Film_Festival_2010%29.jpg", "photos/gerard-depardieu.jpg"],
+  ["Marcel Desailly", null, "https://upload.wikimedia.org/wikipedia/commons/thumb/c/c7/25th_Laureus_World_Sports_Awards_-_Red_Carpet_-_Marcel_Desailly_-_240422_192752-3_%28cropped%29.jpg/330px-25th_Laureus_World_Sports_Awards_-_Red_Carpet_-_Marcel_Desailly_-_240422_192752-3_%28cropped%29.jpg", "photos/marcel-desailly.jpg"],
+  ["Michael Schumacher", null, "https://upload.wikimedia.org/wikipedia/commons/thumb/c/c2/Michael_Schumacher%2C_September_2005.jpg/330px-Michael_Schumacher%2C_September_2005.jpg", "photos/michael-schumacher.jpg"],
+  ["Alain Prost", null, "https://upload.wikimedia.org/wikipedia/commons/thumb/5/5a/Festival_automobile_international_2015_-_Photocall_-_065_%28cropped%29.jpg/330px-Festival_automobile_international_2015_-_Photocall_-_065_%28cropped%29.jpg", "photos/alain-prost.jpg"],
+  ["Calbo (Ärsenik)", 2026, "https://upload.wikimedia.org/wikipedia/commons/thumb/6/67/Calbo_en_2015.png/330px-Calbo_en_2015.png", "photos/calbo-arsenik.png"],
+  ["George W. Bush", null, "https://upload.wikimedia.org/wikipedia/commons/thumb/d/d4/George-W-Bush.jpeg/330px-George-W-Bush.jpeg", "photos/george-w-bush.jpg"],
+  ["Jacques Chirac", 2019, "https://upload.wikimedia.org/wikipedia/commons/thumb/7/7b/Jacques_Chirac_%281997%29_%28cropped%29.jpg/330px-Jacques_Chirac_%281997%29_%28cropped%29.jpg", "photos/jacques-chirac.jpg"],
+  ["Mireille Mathieu", null, "https://upload.wikimedia.org/wikipedia/commons/thumb/6/6f/Mireille_Mathieu_%C3%A0_Lille_-_14_novembre_2014_%28cropped%29.JPG/330px-Mireille_Mathieu_%C3%A0_Lille_-_14_novembre_2014_%28cropped%29.JPG", "photos/mireille-mathieu.jpg"],
+  ["Sheila", null, "https://upload.wikimedia.org/wikipedia/commons/thumb/4/43/SHEILA_FM.jpg/330px-SHEILA_FM.jpg", "photos/sheila.jpg"],
+  ["Dalida", 1987, "https://upload.wikimedia.org/wikipedia/commons/thumb/b/b9/Dalida19673_%28cropped_1%29.jpg/330px-Dalida19673_%28cropped_1%29.jpg", "photos/dalida.jpg"],
+  ["Paul Walker", 2013, "https://upload.wikimedia.org/wikipedia/commons/thumb/9/91/PaulWalkerEdit-1.jpg/330px-PaulWalkerEdit-1.jpg", "photos/paul-walker.jpg"],
+  ["Mac Miller", 2018, "https://upload.wikimedia.org/wikipedia/commons/thumb/9/99/Mac_Miller_2017.jpg/330px-Mac_Miller_2017.jpg", "photos/mac-miller.jpg"],
+  ["Aaliyah", 2001, "https://upload.wikimedia.org/wikipedia/commons/thumb/1/14/Aaliyah-02.jpg/330px-Aaliyah-02.jpg", "photos/aaliyah.jpg"],
+  ["Sophia Loren", null, "https://upload.wikimedia.org/wikipedia/commons/thumb/f/f1/Sophia_Loren_1962.jpg/330px-Sophia_Loren_1962.jpg", "photos/sophia-loren.jpg"],
+  ["Jane Birkin", 2023, "https://upload.wikimedia.org/wikipedia/commons/thumb/9/99/Flickr_-_nicogenin_-_Jane_Birkin_66%C3%A8me_Festival_de_Venise_%28Mostra%29.jpg/330px-Flickr_-_nicogenin_-_Jane_Birkin_66%C3%A8me_Festival_de_Venise_%28Mostra%29.jpg", "photos/jane-birkin.jpg"],
+  ["Patrick Bruel", null, "https://upload.wikimedia.org/wikipedia/commons/thumb/2/29/Patrick_Bruel_Cabourg_2012.jpg/330px-Patrick_Bruel_Cabourg_2012.jpg", "photos/patrick-bruel.jpg"],
+  ["Morgan Freeman", null, "https://upload.wikimedia.org/wikipedia/commons/thumb/9/93/Academy_Award-winning_actor_Morgan_Freeman_narrates_for_the_opening_ceremony_%2826904746425%29_%28cropped%29_3.jpg/330px-Academy_Award-winning_actor_Morgan_Freeman_narrates_for_the_opening_ceremony_%2826904746425%29_%28cropped%29_3.jpg", "photos/morgan-freeman.jpg"],
+  ["Philippe Bouvard", 2026, "https://upload.wikimedia.org/wikipedia/commons/thumb/7/7f/Philippe_Bouvard_%28cropped%29.jpg/330px-Philippe_Bouvard_%28cropped%29.jpg", "photos/philippe-bouvard.jpg"],
+  ["Line Renaud", null, "https://upload.wikimedia.org/wikipedia/commons/thumb/2/2f/Line_Renaud_2011.jpg/330px-Line_Renaud_2011.jpg", "photos/line-renaud.jpg"],
+  ["Werenoi", 2025, "https://upload.wikimedia.org/wikipedia/commons/thumb/f/f7/Werenoi.jpg/330px-Werenoi.jpg", "photos/werenoi.jpg"],
+  ["Pierre Richard", null, "https://upload.wikimedia.org/wikipedia/commons/thumb/0/08/Pierre_Richard_Cannes_2015.jpg/330px-Pierre_Richard_Cannes_2015.jpg", "photos/pierre-richard.jpg"],
+  ["Hugues Aufray", null, "https://upload.wikimedia.org/wikipedia/commons/thumb/9/99/Hugues_Aufray_20091009_Aix-en-Provence_013_cropped.jpg/330px-Hugues_Aufray_20091009_Aix-en-Provence_013_cropped.jpg", "photos/hugues-aufray.jpg"],
+  ["George Michael", 2016, "https://upload.wikimedia.org/wikipedia/commons/thumb/f/f2/George_Michael.jpeg/330px-George_Michael.jpeg", "photos/george-michael.jpg"],
+  ["Harrison Ford", null, "https://upload.wikimedia.org/wikipedia/commons/thumb/8/81/Harrison_Ford_-_Televerse_2025-03.jpg/330px-Harrison_Ford_-_Televerse_2025-03.jpg", "photos/harrison-ford.jpg"],
+  ["Sylvester Stallone", null, "https://upload.wikimedia.org/wikipedia/commons/thumb/8/84/Sylvester_Stallone_Cannes_2019.jpg/330px-Sylvester_Stallone_Cannes_2019.jpg", "photos/sylvester-stallone.jpg"],
+  ["Whitney Houston", 2012, "https://upload.wikimedia.org/wikipedia/commons/thumb/5/52/Whitney_Houston_%28cropped3%29.JPEG/330px-Whitney_Houston_%28cropped3%29.JPEG", "photos/whitney-houston.jpg"],
+  ["Lee Horsley (Matt Houston)", null, null, null],
+  ["Afida Turner", null, "https://upload.wikimedia.org/wikipedia/commons/thumb/b/b6/Afida_turner.jpg/330px-Afida_turner.jpg", "photos/afida-turner.jpg"],
+  ["Loana", 2026, "https://upload.wikimedia.org/wikipedia/commons/thumb/9/9a/Loana_salon_du_chocolat_2008.jpg/330px-Loana_salon_du_chocolat_2008.jpg", "photos/loana.jpg"],
+  ["Robin Williams", 2014, "https://upload.wikimedia.org/wikipedia/commons/thumb/0/05/Robin_Williams_2011a_%282%29.jpg/330px-Robin_Williams_2011a_%282%29.jpg", "photos/robin-williams.jpg"],
+  ["Robbie Williams", null, "https://upload.wikimedia.org/wikipedia/commons/thumb/d/d9/Robbie_Williams_at_the_2024_Toronto_International_Film_Festival_%28cropped%29.jpg/330px-Robbie_Williams_at_the_2024_Toronto_International_Film_Festival_%28cropped%29.jpg", "photos/robbie-williams.jpg"],
+  ["Pierce Brosnan", null, "https://upload.wikimedia.org/wikipedia/commons/thumb/3/37/PierceBrosnan-byPhilipRomano.jpg/330px-PierceBrosnan-byPhilipRomano.jpg", "photos/pierce-brosnan.jpg"],
+  ["Clint Eastwood", null, "https://upload.wikimedia.org/wikipedia/commons/thumb/7/7e/Clint_Eastwood_at_2010_New_York_Film_Festival.jpg/330px-Clint_Eastwood_at_2010_New_York_Film_Festival.jpg", "photos/clint-eastwood.jpg"],
+  ["Aimé Jacquet", null, "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e4/Aim%C3%A9_Jacquet_2006.jpg/330px-Aim%C3%A9_Jacquet_2006.jpg", "photos/aime-jacquet.jpg"],
+  ["Avicii", 2018, "https://upload.wikimedia.org/wikipedia/commons/thumb/8/83/Avicii_2014_003cr.jpg/330px-Avicii_2014_003cr.jpg", "photos/avicii.jpg"],
+  ["XXXTentacion", 2018, "https://upload.wikimedia.org/wikipedia/commons/thumb/e/ee/Xxxtentacion_%28cropped%29.jpg/330px-Xxxtentacion_%28cropped%29.jpg", "photos/xxxtentacion.jpg"],
+  ["Kobe Bryant", 2020, "https://upload.wikimedia.org/wikipedia/commons/thumb/8/82/Kobe_Bryant_2015.jpg/330px-Kobe_Bryant_2015.jpg", "photos/kobe-bryant.jpg"],
+  ["Michael Jordan", null, "https://upload.wikimedia.org/wikipedia/commons/thumb/8/88/Michael_Jordan.jpg/330px-Michael_Jordan.jpg", "photos/michael-jordan.jpg"],
+  ["Steven Spielberg", null, "https://upload.wikimedia.org/wikipedia/commons/thumb/3/3e/Steven_Spielberg_2025.jpg/330px-Steven_Spielberg_2025.jpg", "photos/steven-spielberg.jpg"],
+  ["Tom Hanks", null, "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e7/Tom_Hanks_at_the_Elvis_Premiere_2022.jpg/330px-Tom_Hanks_at_the_Elvis_Premiere_2022.jpg", "photos/tom-hanks.jpg"],
+  ["Al Pacino", null, "https://upload.wikimedia.org/wikipedia/commons/thumb/2/20/ALPACINO_0234e_%2830401875260%29_%28cropped%29.jpg/330px-ALPACINO_0234e_%2830401875260%29_%28cropped%29.jpg", "photos/al-pacino.jpg"],
+  ["Robert De Niro", null, "https://upload.wikimedia.org/wikipedia/commons/thumb/5/58/Robert_De_Niro_Cannes_2016.jpg/330px-Robert_De_Niro_Cannes_2016.jpg", "photos/robert-de-niro.jpg"],
+  ["Amy Winehouse", 2011, "https://upload.wikimedia.org/wikipedia/commons/thumb/c/cf/Amy_Winehouse_f4962007_crop.jpg/330px-Amy_Winehouse_f4962007_crop.jpg", "photos/amy-winehouse.jpg"],
+  ["Paul McCartney", null, "https://upload.wikimedia.org/wikipedia/commons/thumb/d/da/ACL18051018-122_%2843716152470%29.jpg/330px-ACL18051018-122_%2843716152470%29.jpg", "photos/paul-mccartney.jpg"],
+  ["Julien Clerc", null, "https://upload.wikimedia.org/wikipedia/commons/thumb/0/01/Julien_Clerc_2011.jpg/330px-Julien_Clerc_2011.jpg", "photos/julien-clerc.jpg"],
+  ["Patrick Fiori", null, "https://upload.wikimedia.org/wikipedia/commons/thumb/8/87/Patrick_Fiori_t%C3%A9l%C3%A9vie_2014.jpg/330px-Patrick_Fiori_t%C3%A9l%C3%A9vie_2014.jpg", "photos/patrick-fiori.jpg"],
+  ["Florent Pagny", null, "https://upload.wikimedia.org/wikipedia/commons/thumb/b/bf/Florent_Pagny_Forest_National_2017_-_5.jpg/330px-Florent_Pagny_Forest_National_2017_-_5.jpg", "photos/florent-pagny.jpg"],
+  ["Alain Delon", 2024, "https://upload.wikimedia.org/wikipedia/commons/thumb/c/c8/Alain_Delon_1961.jpg/330px-Alain_Delon_1961.jpg", "photos/alain-delon.jpg"],
+  ["France Gall", 2018, "https://upload.wikimedia.org/wikipedia/commons/thumb/a/a1/FranceGall-1969-Radiocorriere-Italie.png/330px-FranceGall-1969-Radiocorriere-Italie.png", "photos/france-gall.png"],
+  ["Michel Berger", 1992, "https://upload.wikimedia.org/wikipedia/commons/thumb/3/38/Michel_Berger.jpg/330px-Michel_Berger.jpg", "photos/michel-berger.jpg"],
+  ["Pierre Arditi", null, "https://upload.wikimedia.org/wikipedia/commons/thumb/c/c3/Pierre_Arditi_in_2009.jpg/330px-Pierre_Arditi_in_2009.jpg", "photos/pierre-arditi.jpg"],
+  ["Elton John", null, "https://upload.wikimedia.org/wikipedia/commons/thumb/f/f3/Elton_John_2023.jpg/330px-Elton_John_2023.jpg", "photos/elton-john.jpg"],
+  ["Tommy Lee Jones", null, "https://upload.wikimedia.org/wikipedia/commons/thumb/4/4f/Tommy_Lee_Jones_2017.jpg/330px-Tommy_Lee_Jones_2017.jpg", "photos/tommy-lee-jones.jpg"],
+  ["Bruce Springsteen", null, "https://upload.wikimedia.org/wikipedia/commons/thumb/4/44/Bruce_Springsteen_2025.jpg/330px-Bruce_Springsteen_2025.jpg", "photos/bruce-springsteen.jpg"],
+  ["Sting", null, "https://upload.wikimedia.org/wikipedia/commons/thumb/4/40/Sting_in_April_2018.jpg/330px-Sting_in_April_2018.jpg", "photos/sting.jpg"],
+  ["Rachid Taha", 2018, "https://upload.wikimedia.org/wikipedia/commons/thumb/6/6c/Rachid_Taha.jpg/330px-Rachid_Taha.jpg", "photos/rachid-taha.jpg"],
+  ["Faudel", null, "https://upload.wikimedia.org/wikipedia/commons/thumb/3/32/Faudel_1999.jpg/330px-Faudel_1999.jpg", "photos/faudel.jpg"],
+  ["Khaled", null, "https://upload.wikimedia.org/wikipedia/commons/thumb/3/36/Cheb_khaled_Arab_Idol.png/330px-Cheb_khaled_Arab_Idol.png", "photos/khaled.png"],
+  ["Diego Maradona", 2020, "https://upload.wikimedia.org/wikipedia/commons/thumb/4/48/Argentina_celebrando_copa_%28cropped%29.jpg/330px-Argentina_celebrando_copa_%28cropped%29.jpg", "photos/diego-maradona.jpg"],
+  ["Le roi Charles III", null, "https://upload.wikimedia.org/wikipedia/commons/thumb/a/ac/King_Charles_III_%28July_2023%29.jpg/330px-King_Charles_III_%28July_2023%29.jpg", "photos/le-roi-charles-iii.jpg"],
+  ["Magic Johnson", null, "https://upload.wikimedia.org/wikipedia/commons/thumb/2/29/Magic_Johnson_at_SXSW_2022_%2851958828669%29_%28cropped%29.jpg/330px-Magic_Johnson_at_SXSW_2022_%2851958828669%29_%28cropped%29.jpg", "photos/magic-johnson.jpg"],
+  ["Didier Deschamps", null, "https://upload.wikimedia.org/wikipedia/commons/thumb/8/8f/Didier_Deschamps_France_v_Senegal_16_June_2026-519_%28cropped%29.jpg/330px-Didier_Deschamps_France_v_Senegal_16_June_2026-519_%28cropped%29.jpg", "photos/didier-deschamps.jpg"],
+  ["Michel Blanc", 2024, "https://upload.wikimedia.org/wikipedia/commons/thumb/2/27/Michel_Blanc_2009.jpg/330px-Michel_Blanc_2009.jpg", "photos/michel-blanc.jpg"],
+  ["Ozzy Osbourne", 2025, "https://upload.wikimedia.org/wikipedia/commons/thumb/4/4a/OzzyChangingHands02-20-2010.jpg/330px-OzzyChangingHands02-20-2010.jpg", "photos/ozzy-osbourne.jpg"],
+  ["Hulk Hogan", 2025, "https://upload.wikimedia.org/wikipedia/commons/thumb/5/57/Hulk_Hogan%2C_circa_1985.jpg/330px-Hulk_Hogan%2C_circa_1985.jpg", "photos/hulk-hogan.jpg"],
+  ["David Lynch", 2025, "https://upload.wikimedia.org/wikipedia/commons/thumb/d/de/David_Lynch_at_the_1990_Emmy_Awards.jpg/330px-David_Lynch_at_the_1990_Emmy_Awards.jpg", "photos/david-lynch.jpg"],
+  ["Jean-Marie Le Pen", 2025, "https://upload.wikimedia.org/wikipedia/commons/thumb/d/d1/Le_Pen_Jean-Marie_1999.jpg/330px-Le_Pen_Jean-Marie_1999.jpg", "photos/jean-marie-le-pen.jpg"],
+  ["Marianne Faithfull", 2025, "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e5/As_Tears_Go_By_-_Cash_Box_ad_1964_%28cropped%29.jpg/330px-As_Tears_Go_By_-_Cash_Box_ad_1964_%28cropped%29.jpg", "photos/marianne-faithfull.jpg"],
+  ["Robert Redford", 2025, "https://upload.wikimedia.org/wikipedia/commons/thumb/0/03/Tell_Them_Willie_Boy_Is_Here_%E2%80%93_Robert_Redford_photo.jpg/330px-Tell_Them_Willie_Boy_Is_Here_%E2%80%93_Robert_Redford_photo.jpg", "photos/robert-redford.jpg"],
+  ["Thierry Lhermitte", null, "https://upload.wikimedia.org/wikipedia/commons/thumb/f/ff/Thierry_Lhermitte_2015.jpg/330px-Thierry_Lhermitte_2015.jpg", "photos/thierry-lhermitte.jpg"],
+  ["Josiane Balasko", null, "https://upload.wikimedia.org/wikipedia/commons/thumb/c/c4/Josiane_Balasko_2014.jpg/330px-Josiane_Balasko_2014.jpg", "photos/josiane-balasko.jpg"],
+  ["José Garcia", null, "https://upload.wikimedia.org/wikipedia/commons/thumb/5/55/Jos%C3%A9_Garcia_micro.jpg/330px-Jos%C3%A9_Garcia_micro.jpg", "photos/jose-garcia.jpg"],
+  ["Richard Anconina", null, "https://upload.wikimedia.org/wikipedia/commons/thumb/3/36/ANCONINA_Richard-24x30-NCb.jpg/330px-ANCONINA_Richard-24x30-NCb.jpg", "photos/richard-anconina.jpg"],
+  ["Antoine de Caunes", null, "https://upload.wikimedia.org/wikipedia/commons/thumb/d/d0/Antoine_de_Caunes_2013.jpg/330px-Antoine_de_Caunes_2013.jpg", "photos/antoine-de-caunes.jpg"],
+  ["Richard Bohringer", null, "https://upload.wikimedia.org/wikipedia/commons/thumb/0/05/Richard_Bohringer_1994.jpg/330px-Richard_Bohringer_1994.jpg", "photos/richard-bohringer.jpg"],
+  ["Vincent Lindon", null, "https://upload.wikimedia.org/wikipedia/commons/thumb/4/4e/Vincent_Lindon%2C_Berlin_2022_%28cropped%29.jpg/330px-Vincent_Lindon%2C_Berlin_2022_%28cropped%29.jpg", "photos/vincent-lindon.jpg"],
+  ["Gérard Darmon", null, "https://upload.wikimedia.org/wikipedia/commons/thumb/7/74/Delanoe_Zenith_2008_02_27_n22.jpg/330px-Delanoe_Zenith_2008_02_27_n22.jpg", "photos/gerard-darmon.jpg"],
+  ["Richard Berry", null, "https://upload.wikimedia.org/wikipedia/commons/thumb/5/51/Richard_Berry_2015.jpg/330px-Richard_Berry_2015.jpg", "photos/richard-berry.jpg"],
+  ["Julien Lepers", null, "https://upload.wikimedia.org/wikipedia/commons/thumb/7/7b/Julien_Lepers_2014.jpg/330px-Julien_Lepers_2014.jpg", "photos/julien-lepers.jpg"],
+  ["Nelson Mandela", 2013, "https://upload.wikimedia.org/wikipedia/commons/thumb/0/02/Nelson_Mandela_1994.jpg/330px-Nelson_Mandela_1994.jpg", "photos/nelson-mandela.jpg"],
+  ["Stevie Wonder", null, "https://upload.wikimedia.org/wikipedia/commons/thumb/8/8f/Stevie_Wonder_1994.jpg/330px-Stevie_Wonder_1994.jpg", "photos/stevie-wonder.jpg"],
+  ["Ray Charles", 2004, "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e8/Ray_Charles_classic_piano_pose.jpg/330px-Ray_Charles_classic_piano_pose.jpg", "photos/ray-charles.jpg"],
+  ["Steve Jobs", 2011, "https://upload.wikimedia.org/wikipedia/commons/thumb/f/f5/Steve_Jobs_Headshot_2010-CROP2.jpg/330px-Steve_Jobs_Headshot_2010-CROP2.jpg", "photos/steve-jobs.jpg"],
+  ["Jim Carrey", null, "https://upload.wikimedia.org/wikipedia/commons/thumb/e/ed/Jim_Carrey_2020_cropped.jpg/330px-Jim_Carrey_2020_cropped.jpg", "photos/jim-carrey.jpg"],
+  ["Anthony Hopkins", null, "https://upload.wikimedia.org/wikipedia/commons/thumb/0/0a/Anthony_Hopkins_Red_Sea_Festival_2025_Portrait.jpg/330px-Anthony_Hopkins_Red_Sea_Festival_2025_Portrait.jpg", "photos/anthony-hopkins.jpg"],
+  ["Britney Spears", null, "https://upload.wikimedia.org/wikipedia/commons/thumb/d/d3/Britney_Spears-FFT-Toronto_%28cropped%29.jpg/330px-Britney_Spears-FFT-Toronto_%28cropped%29.jpg", "photos/britney-spears.jpg"],
+  ["Maïté", 2024, "https://upload.wikimedia.org/wikipedia/commons/thumb/c/cc/Marie-Th%C3%A9r%C3%A8se_Ordonez.jpg/330px-Marie-Th%C3%A9r%C3%A8se_Ordonez.jpg", "photos/maite.jpg"],
+  ["Philippe Candeloro", null, "https://upload.wikimedia.org/wikipedia/commons/thumb/a/a8/Philippe_Candeloro_2020_-2.jpg/330px-Philippe_Candeloro_2020_-2.jpg", "photos/philippe-candeloro.jpg"],
+  ["Eddie Murphy", null, "https://upload.wikimedia.org/wikipedia/commons/thumb/5/5f/Eddie_Murphy_by_David_Shankbone.jpg/330px-Eddie_Murphy_by_David_Shankbone.jpg", "photos/eddie-murphy.jpg"],
+  ["Charles Aznavour", 2018, "https://upload.wikimedia.org/wikipedia/commons/thumb/2/2b/2014.06.23._Charles_Aznavour_Fot_Mariusz_Kubik_01.jpg/330px-2014.06.23._Charles_Aznavour_Fot_Mariusz_Kubik_01.jpg", "photos/charles-aznavour.jpg"],
+  ["Claude Nougaro", 2004, "https://upload.wikimedia.org/wikipedia/commons/thumb/0/00/Claudenougaro060607.JPG/330px-Claudenougaro060607.JPG", "photos/claude-nougaro.jpg"],
+  ["Eddy Mitchell", null, "https://upload.wikimedia.org/wikipedia/commons/thumb/b/b3/EddyMitchell-StudioHarcourt-1980.png/330px-EddyMitchell-StudioHarcourt-1980.png", "photos/eddy-mitchell.png"],
+  ["Mimie Mathy", null, "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e3/Mimie_Mathy_Cannes.jpg/330px-Mimie_Mathy_Cannes.jpg", "photos/mimie-mathy.jpg"],
+  ["Matthew Perry", 2023, "https://upload.wikimedia.org/wikipedia/commons/thumb/c/cd/Matthew_Perry_in_support_of_Awareness_on_Drug_Courts_and_Reduced_Substance_Abuse.jpg/330px-Matthew_Perry_in_support_of_Awareness_on_Drug_Courts_and_Reduced_Substance_Abuse.jpg", "photos/matthew-perry.jpg"],
+  ["Pelé", 2022, "https://upload.wikimedia.org/wikipedia/commons/thumb/5/5e/Pele_con_brasil_%28cropped%29.jpg/330px-Pele_con_brasil_%28cropped%29.jpg", "photos/pele.jpg"],
+  ["Jean-Jacques Goldman", null, "https://upload.wikimedia.org/wikipedia/commons/thumb/8/8c/Jean-Jacques_Goldman_-_may_2002.jpg/330px-Jean-Jacques_Goldman_-_may_2002.jpg", "photos/jean-jacques-goldman.jpg"],
+  ["Gérard Jugnot", null, "https://upload.wikimedia.org/wikipedia/commons/thumb/1/15/G%C3%A9rard_Jugnot_-_Avant_premi%C3%A8re_Rose_et_Noir_-_Montpellier.jpg/330px-G%C3%A9rard_Jugnot_-_Avant_premi%C3%A8re_Rose_et_Noir_-_Montpellier.jpg", "photos/gerard-jugnot.jpg"],
+  ["Bonnie Tyler", 2026, "https://upload.wikimedia.org/wikipedia/commons/thumb/0/02/2016_Bonnie_Tyler_-_by_2eight_-_DSC8647.jpg/330px-2016_Bonnie_Tyler_-_by_2eight_-_DSC8647.jpg", "photos/bonnie-tyler.jpg"],
+  ["Barbra Streisand", null, "https://upload.wikimedia.org/wikipedia/commons/thumb/4/44/Barbra_Streisand_with_Francis_Collins_and_Anthony_Fauci_%2827806589237%29_%28cropped%29.jpg/330px-Barbra_Streisand_with_Francis_Collins_and_Anthony_Fauci_%2827806589237%29_%28cropped%29.jpg", "photos/barbra-streisand.jpg"],
+  ["Lionel Jospin", 2026, "https://upload.wikimedia.org/wikipedia/commons/thumb/d/d9/Lionel_Jospin%2C_Klaus_H%C3%A4nsch_1996_%28cropped%29.jpg/330px-Lionel_Jospin%2C_Klaus_H%C3%A4nsch_1996_%28cropped%29.jpg", "photos/lionel-jospin.jpg"],
+  ["Dave", null, "https://upload.wikimedia.org/wikipedia/commons/thumb/1/13/Nationale_finale_van_het_Eurovisie_Songfestival_in_Scheveningen_nr._17_Dave%2C_Bestanddeelnr_922-1434.jpg/330px-Nationale_finale_van_het_Eurovisie_Songfestival_in_Scheveningen_nr._17_Dave%2C_Bestanddeelnr_922-1434.jpg", "photos/dave.jpg"],
+  ["Philippe Risoli", null, null, null],
+  ["Claire Chazal", null, "https://upload.wikimedia.org/wikipedia/commons/thumb/c/c5/Claire_Chazal.jpg/330px-Claire_Chazal.jpg", "photos/claire-chazal.jpg"],
+  ["Évelyne Dhéliat", null, null, null],
+  ["Évelyne Thomas", null, null, null],
+  ["Marc Lavoine", null, "https://upload.wikimedia.org/wikipedia/commons/thumb/0/0a/Marc_Lavoine_2014.jpg/330px-Marc_Lavoine_2014.jpg", "photos/marc-lavoine.jpg"],
+  ["Jordy", null, null, null],
+  ["Macaulay Culkin", null, "https://upload.wikimedia.org/wikipedia/commons/thumb/a/a7/Macaulay_Culkin_-_Home_Alone_35th.jpg/330px-Macaulay_Culkin_-_Home_Alone_35th.jpg", "photos/macaulay-culkin.jpg"],
+  ["Heath Ledger", 2008, "https://upload.wikimedia.org/wikipedia/commons/thumb/4/4f/Heath_Ledger.jpg/330px-Heath_Ledger.jpg", "photos/heath-ledger.jpg"],
+  ["Amanda Lear", null, "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e6/Amanda_Lear_2010_a.jpg/330px-Amanda_Lear_2010_a.jpg", "photos/amanda-lear.jpg"],
+  ["Jean-Pierre Coffe", 2016, "https://upload.wikimedia.org/wikipedia/commons/thumb/5/55/Jean-Pierre_Coffe_22_02_2012.jpg/330px-Jean-Pierre_Coffe_22_02_2012.jpg", "photos/jean-pierre-coffe.jpg"],
+  ["Lindsay Lohan", null, "https://upload.wikimedia.org/wikipedia/commons/thumb/b/ba/Lindsay_Lohan_%2854464682616%29_%28cropped%29.jpg/330px-Lindsay_Lohan_%2854464682616%29_%28cropped%29.jpg", "photos/lindsay-lohan.jpg"],
+  ["Michelle Trachtenberg", 2025, "https://upload.wikimedia.org/wikipedia/commons/thumb/0/08/Michelle_Trachtenberg_%2843904360470%29.jpg/330px-Michelle_Trachtenberg_%2843904360470%29.jpg", "photos/michelle-trachtenberg.jpg"],
+  ["Diane Keaton", 2025, "https://upload.wikimedia.org/wikipedia/commons/thumb/0/0b/Diane_Keaton_by_Firooz_Zahedi_2.jpg/330px-Diane_Keaton_by_Firooz_Zahedi_2.jpg", "photos/diane-keaton.jpg"],
+  ["Michael Keaton", null, "https://upload.wikimedia.org/wikipedia/commons/thumb/1/1b/Michael_Keaton_%28NYCC_2014%29.JPG/330px-Michael_Keaton_%28NYCC_2014%29.JPG", "photos/michael-keaton.jpg"],
+  ["Val Kilmer", 2025, "https://upload.wikimedia.org/wikipedia/commons/thumb/2/22/Val_Kilmer_Cannes.jpg/330px-Val_Kilmer_Cannes.jpg", "photos/val-kilmer.jpg"],
+  ["Mary-Kate Olsen", null, "https://upload.wikimedia.org/wikipedia/commons/thumb/d/df/Mary-Kate_Olsen_at_the_Tribeca_Film_Festival.jpg/330px-Mary-Kate_Olsen_at_the_Tribeca_Film_Festival.jpg", "photos/mary-kate-olsen.jpg"],
+  ["Ashley Olsen", null, "https://upload.wikimedia.org/wikipedia/commons/thumb/1/12/Ashley_Olsen_2011_Shankbone.JPG/330px-Ashley_Olsen_2011_Shankbone.JPG", "photos/ashley-olsen.jpg"],
+  ["Giorgio Armani", 2025, "https://upload.wikimedia.org/wikipedia/commons/thumb/9/96/GiorgioArmani.jpg/330px-GiorgioArmani.jpg", "photos/giorgio-armani.jpg"],
+  ["Virgil Abloh", 2021, "https://upload.wikimedia.org/wikipedia/commons/thumb/3/31/Virgil_Abloh_Paris_Fashion_Week_Autumn_Winter_2019_%28cropped%29.jpg/330px-Virgil_Abloh_Paris_Fashion_Week_Autumn_Winter_2019_%28cropped%29.jpg", "photos/virgil-abloh.jpg"],
+  ["Karl Lagerfeld", 2019, "https://upload.wikimedia.org/wikipedia/commons/thumb/a/a0/Karl_Lagerfeld_2014.jpg/330px-Karl_Lagerfeld_2014.jpg", "photos/karl-lagerfeld.jpg"],
+  ["John Lennon", 1980, "https://upload.wikimedia.org/wikipedia/commons/thumb/9/90/John_Lennon_portrait.jpg/330px-John_Lennon_portrait.jpg", "photos/john-lennon.jpg"],
+  ["Lou Bega", null, "https://upload.wikimedia.org/wikipedia/commons/thumb/7/72/Lou_Bega_-_2018111210128_2018-04-21_30_Jahre_Radio_Regenbogen_-_Sven_-_1D_X_MK_II_-_0516_-_AK8I7268_%28cropped%29.jpg/330px-Lou_Bega_-_2018111210128_2018-04-21_30_Jahre_Radio_Regenbogen_-_Sven_-_1D_X_MK_II_-_0516_-_AK8I7268_%28cropped%29.jpg", "photos/lou-bega.jpg"],
+  ["Ricky Martin", null, "https://upload.wikimedia.org/wikipedia/commons/thumb/7/7d/Ricky_Martin-4262_%28cropped%29.jpg/330px-Ricky_Martin-4262_%28cropped%29.jpg", "photos/ricky-martin.jpg"],
+  ["Boris Eltsine", 2007, "https://upload.wikimedia.org/wikipedia/commons/thumb/4/45/%D0%91%D0%BE%D1%80%D0%B8%D1%81_%D0%9D%D0%B8%D0%BA%D0%BE%D0%BB%D0%B0%D0%B5%D0%B2%D0%B8%D1%87_%D0%95%D0%BB%D1%8C%D1%86%D0%B8%D0%BD-1_%28cropped%29_%28cropped%29.jpg/330px-%D0%91%D0%BE%D1%80%D0%B8%D1%81_%D0%9D%D0%B8%D0%BA%D0%BE%D0%BB%D0%B0%D0%B5%D0%B2%D0%B8%D1%87_%D0%95%D0%BB%D1%8C%D1%86%D0%B8%D0%BD-1_%28cropped%29_%28cropped%29.jpg", "photos/boris-eltsine.jpg"],
+  ["Craig David", null, "https://upload.wikimedia.org/wikipedia/commons/thumb/a/a9/Craig_David_%28at_The_Queen%27s_Birthday_Party%29_%28cropped%29_%281%29.jpg/330px-Craig_David_%28at_The_Queen%27s_Birthday_Party%29_%28cropped%29_%281%29.jpg", "photos/craig-david.jpg"],
+  ["Paco Rabanne", 2023, "https://upload.wikimedia.org/wikipedia/commons/thumb/f/f9/French_couturie_Paco_Rabanne_visited_Kyiv_in_2006.jpg/330px-French_couturie_Paco_Rabanne_visited_Kyiv_in_2006.jpg", "photos/paco-rabanne.jpg"],
+  ["Jean Reno", null, "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e3/Jean_Reno_Cannes_2016.jpg/330px-Jean_Reno_Cannes_2016.jpg", "photos/jean-reno.jpg"],
+  ["Cyndi Lauper", null, "https://upload.wikimedia.org/wikipedia/commons/thumb/6/69/CyndiLauper2022.jpg/330px-CyndiLauper2022.jpg", "photos/cyndi-lauper.jpg"],
+  ["Jennifer Love Hewitt", null, "https://upload.wikimedia.org/wikipedia/commons/thumb/0/07/Jennifer_Love_Hewitt_%28cropped%29.jpg/330px-Jennifer_Love_Hewitt_%28cropped%29.jpg", "photos/jennifer-love-hewitt.jpg"],
+  ["Sean Connery", 2020, "https://upload.wikimedia.org/wikipedia/commons/thumb/9/96/Sean_Connery_%281983%29.jpg/330px-Sean_Connery_%281983%29.jpg", "photos/sean-connery.jpg"],
+  ["Carrie Fisher", 2016, "https://upload.wikimedia.org/wikipedia/commons/thumb/0/03/Carrie_Fisher_2013-a_straightened.jpg/330px-Carrie_Fisher_2013-a_straightened.jpg", "photos/carrie-fisher.jpg"],
+  ["Robert Hue", null, "https://upload.wikimedia.org/wikipedia/commons/thumb/b/ba/Robert_Hue_09796.jpg/330px-Robert_Hue_09796.jpg", "photos/robert-hue.jpg"],
+  ["John McEnroe", null, "https://upload.wikimedia.org/wikipedia/commons/thumb/4/4e/John_McEnroe_WTT.jpg/330px-John_McEnroe_WTT.jpg", "photos/john-mcenroe.jpg"],
+  ["Amanda Bynes", null, "https://upload.wikimedia.org/wikipedia/commons/thumb/f/ff/Amanda_Bynes_2009_%28facecrop%29.jpg/330px-Amanda_Bynes_2009_%28facecrop%29.jpg", "photos/amanda-bynes.jpg"],
+  ["Judy Garland", 1969, "https://upload.wikimedia.org/wikipedia/commons/thumb/4/4f/Judy_Garland_The_Harvey_Girls_MGM_Publicity_still.jpeg/330px-Judy_Garland_The_Harvey_Girls_MGM_Publicity_still.jpeg", "photos/judy-garland.jpg"],
+  ["Drew Barrymore", null, "https://upload.wikimedia.org/wikipedia/commons/thumb/5/52/Drew_Barrymore_in_2019_%28cropped%29.jpg/330px-Drew_Barrymore_in_2019_%28cropped%29.jpg", "photos/drew-barrymore.jpg"],
+  ["Cameron Diaz", null, "https://upload.wikimedia.org/wikipedia/commons/thumb/9/99/Cameron_Diaz_at_WWD_Style_Awards_2026-1998.jpg/330px-Cameron_Diaz_at_WWD_Style_Awards_2026-1998.jpg", "photos/cameron-diaz.jpg"],
+  ["Charlie Sheen", null, "https://upload.wikimedia.org/wikipedia/commons/thumb/a/a7/Charlie_Sheen_2012.jpg/330px-Charlie_Sheen_2012.jpg", "photos/charlie-sheen.jpg"],
+  ["Bill Murray", null, "https://upload.wikimedia.org/wikipedia/commons/thumb/f/f1/Bill_Murray-8882.jpg/330px-Bill_Murray-8882.jpg", "photos/bill-murray.jpg"],
+  ["Kevin Costner", null, "https://upload.wikimedia.org/wikipedia/commons/thumb/9/9a/Kevin_Costner_2016.jpg/330px-Kevin_Costner_2016.jpg", "photos/kevin-costner.jpg"],
+  ["Kevin Spacey", null, "https://upload.wikimedia.org/wikipedia/commons/thumb/e/ec/Kevin_Spacey-9243_%28cropped%29.jpg/330px-Kevin_Spacey-9243_%28cropped%29.jpg", "photos/kevin-spacey.jpg"],
+  ["Arielle Dombasle", null, "https://upload.wikimedia.org/wikipedia/commons/thumb/7/74/DOMBASLE_Arielle-24x30-2006.jpg/330px-DOMBASLE_Arielle-24x30-2006.jpg", "photos/arielle-dombasle.jpg"],
+  ["Woody Allen", null, "https://upload.wikimedia.org/wikipedia/commons/thumb/f/f5/Woody_Allen_Cannes_2011.jpg/330px-Woody_Allen_Cannes_2011.jpg", "photos/woody-allen.jpg"],
+  ["Bill Cosby", null, "https://upload.wikimedia.org/wikipedia/commons/thumb/0/04/Bill_Cosby_1965.JPG/330px-Bill_Cosby_1965.JPG", "photos/bill-cosby.jpg"],
+  ["Gary Coleman", 2010, "https://upload.wikimedia.org/wikipedia/commons/thumb/f/f2/GaryColemanE3May05.jpg/330px-GaryColemanE3May05.jpg", "photos/gary-coleman.jpg"],
+  ["Jon Bon Jovi", null, "https://upload.wikimedia.org/wikipedia/commons/thumb/d/dc/Jon_Bon_Jovi_at_Health_Datapalooza_Event.jpg/330px-Jon_Bon_Jovi_at_Health_Datapalooza_Event.jpg", "photos/jon-bon-jovi.jpg"],
+  ["Francis Cabrel", null, "https://upload.wikimedia.org/wikipedia/commons/thumb/7/77/Francis_Cabrel%2C_2009_%28cropped%29.jpg/330px-Francis_Cabrel%2C_2009_%28cropped%29.jpg", "photos/francis-cabrel.jpg"],
+  ["Didier Barbelivien", null, "https://upload.wikimedia.org/wikipedia/commons/thumb/5/5a/Didier_Barbelivien_2012.jpg/330px-Didier_Barbelivien_2012.jpg", "photos/didier-barbelivien.jpg"],
+  ["Bernard Lavilliers", null, "https://upload.wikimedia.org/wikipedia/commons/thumb/9/9e/Festival_du_Bout_du_Monde_2022_-_Bernard_Lavilliers_-_021.jpg/330px-Festival_du_Bout_du_Monde_2022_-_Bernard_Lavilliers_-_021.jpg", "photos/bernard-lavilliers.jpg"],
+  ["Le Dalaï-lama", null, "https://upload.wikimedia.org/wikipedia/commons/thumb/f/fb/The_Dalai_Lama_in_2012.jpg/330px-The_Dalai_Lama_in_2012.jpg", "photos/le-dalai-lama.jpg"],
+  ["Allen Iverson", null, "https://upload.wikimedia.org/wikipedia/commons/thumb/2/21/Allen_Iverson_headshot.jpg/330px-Allen_Iverson_headshot.jpg", "photos/allen-iverson.jpg"],
+  ["Dennis Rodman", null, "https://upload.wikimedia.org/wikipedia/commons/thumb/5/59/Dennis_Rodman_ToPo.jpg/330px-Dennis_Rodman_ToPo.jpg", "photos/dennis-rodman.jpg"],
+  ["Alan Rickman (Rogue)", 2016, "https://upload.wikimedia.org/wikipedia/commons/thumb/1/17/Alan_Rickman_at_BAM_-17.jpg/330px-Alan_Rickman_at_BAM_-17.jpg", "photos/alan-rickman-rogue.jpg"],
+  ["Yves Montand", 1991, "https://upload.wikimedia.org/wikipedia/commons/thumb/e/ee/Yves_Montand_1958.jpg/330px-Yves_Montand_1958.jpg", "photos/yves-montand.jpg"],
+  ["Sean Penn", null, "https://upload.wikimedia.org/wikipedia/commons/thumb/3/3d/Superpower_%282023%29-60535.jpg/330px-Superpower_%282023%29-60535.jpg", "photos/sean-penn.jpg"],
+  ["Kevin Bacon", null, "https://upload.wikimedia.org/wikipedia/commons/thumb/d/d2/Kevin_Bacon.jpg/330px-Kevin_Bacon.jpg", "photos/kevin-bacon.jpg"],
+  ["Thierry Roland", 2012, "https://upload.wikimedia.org/wikipedia/commons/thumb/a/a0/Thierry_Roland.jpg/330px-Thierry_Roland.jpg", "photos/thierry-roland.jpg"],
+  ["Jean-Pierre Foucault", null, "https://upload.wikimedia.org/wikipedia/commons/thumb/b/b1/Salon_du_livre_-_Jean-Pierre_Foucault.jpg/330px-Salon_du_livre_-_Jean-Pierre_Foucault.jpg", "photos/jean-pierre-foucault.jpg"],
+  ["Jack Nicholson", null, "https://upload.wikimedia.org/wikipedia/commons/thumb/e/ec/Jack_Nicholson_2001.jpg/330px-Jack_Nicholson_2001.jpg", "photos/jack-nicholson.jpg"],
+  ["Mel Gibson", null, "https://upload.wikimedia.org/wikipedia/commons/thumb/9/95/Mel_Gibson_Cannes_2016_2.jpg/330px-Mel_Gibson_Cannes_2016_2.jpg", "photos/mel-gibson.jpg"],
+  ["Iggy Pop", null, "https://upload.wikimedia.org/wikipedia/commons/thumb/6/61/Iggy_%26_the_Stooges_%282005%29.jpg/330px-Iggy_%26_the_Stooges_%282005%29.jpg", "photos/iggy-pop.jpg"],
+  ["Mickey Rourke", null, "https://upload.wikimedia.org/wikipedia/commons/thumb/3/30/Mickey_Rourke_10_December_2010_%28cropped%29.jpeg/330px-Mickey_Rourke_10_December_2010_%28cropped%29.jpeg", "photos/mickey-rourke.jpg"],
+  ["Keith Richards", null, "https://upload.wikimedia.org/wikipedia/commons/thumb/1/1a/Keith_Richards_2_Berlinale_2008.jpg/330px-Keith_Richards_2_Berlinale_2008.jpg", "photos/keith-richards.jpg"],
+  ["Mia Frye", null, "https://upload.wikimedia.org/wikipedia/commons/thumb/c/c2/Mia_Frye.jpg/330px-Mia_Frye.jpg", "photos/mia-frye.jpg"],
+  ["Bruno Vandelli", null, null, null],
+  ["Alain Gillot-Pétré", 1999, null, null],
+  ["Nelson Monfort", null, "https://upload.wikimedia.org/wikipedia/commons/thumb/9/91/Nelson_Monfort_-_Envol%C3%A9e_des_Livres_2023_%28cropped%29.jpg/330px-Nelson_Monfort_-_Envol%C3%A9e_des_Livres_2023_%28cropped%29.jpg", "photos/nelson-monfort.jpg"],
+  ["Gérard Holtz", null, "https://upload.wikimedia.org/wikipedia/commons/thumb/c/c9/G%C3%A9rard_Holtz.JPG/330px-G%C3%A9rard_Holtz.JPG", "photos/gerard-holtz.jpg"],
+  ["Carlos (Big Bisou)", 2008, "https://upload.wikimedia.org/wikipedia/commons/thumb/1/17/Carlos_2007_cropped.jpg/330px-Carlos_2007_cropped.jpg", "photos/carlos-big-bisou.jpg"],
+  ["Laurence Boccolini", null, null, null],
+  ["Hayao Miyazaki", null, "https://upload.wikimedia.org/wikipedia/commons/thumb/f/ff/HayaoMiyazakiCCJuly09.jpg/330px-HayaoMiyazakiCCJuly09.jpg", "photos/hayao-miyazaki.jpg"],
+  ["Yves Marchesseau (La Boule)", 2014, "https://upload.wikimedia.org/wikipedia/commons/thumb/6/66/Fort-Boyard-Yves-Marchesseau-alias-La-Boule-est-decede.jpg/330px-Fort-Boyard-Yves-Marchesseau-alias-La-Boule-est-decede.jpg", "photos/yves-marchesseau-la-boule.jpg"],
+  ["Christian Clavier", null, "https://upload.wikimedia.org/wikipedia/commons/thumb/7/72/Christian_Clavier_Cannes.jpg/330px-Christian_Clavier_Cannes.jpg", "photos/christian-clavier.jpg"],
+  ["Jean-Paul Belmondo", 2021, "https://upload.wikimedia.org/wikipedia/commons/thumb/c/ca/Jean-Paul_Belmondo_2013_4.jpg/330px-Jean-Paul_Belmondo_2013_4.jpg", "photos/jean-paul-belmondo.jpg"],
+  ["Johnny Hallyday", 2017, "https://upload.wikimedia.org/wikipedia/commons/thumb/c/cd/Johnny_Hallyday_2012_3.jpg/330px-Johnny_Hallyday_2012_3.jpg", "photos/johnny-hallyday.jpg"],
+  ["Gene Hackman", 2025, "https://upload.wikimedia.org/wikipedia/commons/thumb/3/3a/Gene_Hackman_-_1972.jpg/330px-Gene_Hackman_-_1972.jpg", "photos/gene-hackman.jpg"],
+  ["Bruce Willis", null, "https://upload.wikimedia.org/wikipedia/commons/thumb/c/c4/Bruce_Willis_by_Gage_Skidmore_3.jpg/330px-Bruce_Willis_by_Gage_Skidmore_3.jpg", "photos/bruce-willis.jpg"],
+  ["Michael J. Fox", null, "https://upload.wikimedia.org/wikipedia/commons/thumb/2/20/Michael_J_Fox_2020.jpg/330px-Michael_J_Fox_2020.jpg", "photos/michael-j-fox.jpg"],
+  ["Tina Turner", 2023, "https://upload.wikimedia.org/wikipedia/commons/thumb/0/0b/Tina_Turner_Breaks_All_the_Rules.png/330px-Tina_Turner_Breaks_All_the_Rules.png", "photos/tina-turner.png"],
+  ["Mick Jagger", null, "https://upload.wikimedia.org/wikipedia/commons/thumb/7/74/Rolling_Stones_04.jpg/330px-Rolling_Stones_04.jpg", "photos/mick-jagger.jpg"],
+  ["Dolly Parton", 2026, "https://upload.wikimedia.org/wikipedia/commons/thumb/a/a3/Young-Dolly-Parton.jpg/330px-Young-Dolly-Parton.jpg", "photos/dolly-parton.jpg"],
+  ["Pape François", 2025, "https://upload.wikimedia.org/wikipedia/commons/thumb/a/ab/Pope_Francis_Korea_Haemi_Castle_19.jpg/330px-Pope_Francis_Korea_Haemi_Castle_19.jpg", "photos/pape-francois.jpg"],
+  ["Coluche", 1986, "https://upload.wikimedia.org/wikipedia/commons/thumb/c/c1/Coluche%2C_1986%2C_European_Parliament.jpg/330px-Coluche%2C_1986%2C_European_Parliament.jpg", "photos/coluche.jpg"],
+  ["Claude François", 1978, "https://upload.wikimedia.org/wikipedia/commons/thumb/f/fc/Claude_Francois_1965-4.jpg/330px-Claude_Francois_1965-4.jpg", "photos/claude-francois.jpg"],
+  ["Jean-Claude Van Damme", null, "https://upload.wikimedia.org/wikipedia/commons/thumb/b/b2/Van_Damme_Cannes_2010_%28cropped%29.jpg/330px-Van_Damme_Cannes_2010_%28cropped%29.jpg", "photos/jean-claude-van-damme.jpg"],
+  ["Annie Cordy", 2020, "https://upload.wikimedia.org/wikipedia/commons/thumb/9/95/Annie_Cordy_Cannes.jpg/330px-Annie_Cordy_Cannes.jpg", "photos/annie-cordy.jpg"],
+  ["Françoise Hardy", 2024, "https://upload.wikimedia.org/wikipedia/commons/thumb/a/a4/Francoise_hardy_1964.jpg/330px-Francoise_hardy_1964.jpg", "photos/francoise-hardy.jpg"],
+  ["Catherine Deneuve", null, "https://upload.wikimedia.org/wikipedia/commons/thumb/c/ce/Catherine_Deneuve_Berlinale_2017.jpg/330px-Catherine_Deneuve_Berlinale_2017.jpg", "photos/catherine-deneuve.jpg"],
+  ["Claudia Cardinale", 2025, "https://upload.wikimedia.org/wikipedia/commons/thumb/1/11/Claudia_Cardinale_1963.jpg/330px-Claudia_Cardinale_1963.jpg", "photos/claudia-cardinale.jpg"],
+  ["Michel Polnareff", null, "https://upload.wikimedia.org/wikipedia/commons/thumb/b/b9/Michel_polnareff_bercy.jpg/330px-Michel_polnareff_bercy.jpg", "photos/michel-polnareff.jpg"]
+].map(([name, d, web, local]) => ({ name, d, img: LINKED ? web : local }));
+const GAME_URL = ON_GITHUB ? location.origin + location.pathname : "https://claude.ai/artifact/52W3j34ZndtWLzpGRtNWuC";
+const face = () => FACES[Math.floor(Math.random() * FACES.length)];
+const shuffle = a => { for (let k = a.length - 1; k > 0; k--) { const j = Math.floor(Math.random() * (k + 1)); [a[k], a[j]] = [a[j], a[k]]; } return a; };
+// entre 30 % et 70 % de morts par manche : jamais tout l'un ou tout l'autre, mais pas devinable non plus
+function makeDeck() {
+  const nDead = Math.round(ROUND * (0.3 + Math.random() * 0.4));
+  return shuffle([...shuffle(CELEBS.filter(c => c.d)).slice(0, nDead), ...shuffle(CELEBS.filter(c => !c.d)).slice(0, ROUND - nDead)]);
+}
+console.assert(CELEBS.every(c => c.name && (c.d === null || c.d > 1900)), "données invalides");
+
+const FACES = ["🕶️", "🎤", "🎬", "👑", "🎸", "💃", "🕺", "🎭", "🥸", "🤠"];
+let ROUND = 10;
+const $ = id => document.getElementById(id);
+let deck, i, score, streak, best, locked;
+
+function menu() {
+  $("buttons").hidden = true; locked = true;
+  $("stage").innerHTML = `
+    <div class="result ok">
+      <div class="big">PRÊT ?</div>
+      <p>Combien de célébrités tu veux enterrer… ou pas ?</p>
+      <button id="quick">⚡ Partie rapide · 10</button>
+      <button id="marathon">🏃 Marathon · 100</button>
+    </div>`;
+  $("quick").onclick = () => start(10);
+  $("marathon").onclick = () => start(100);
+}
+
+function start(n) {
+  ROUND = n; deck = makeDeck();
+  i = 0; score = 0; streak = 0; best = 0;
+  $("buttons").hidden = false;
+  showCard();
+}
+
+function hud() {
+  $("progress").textContent = `${Math.min(i + 1, ROUND)}/${ROUND}`;
+  $("score").textContent = `Score : ${score}`;
+  $("streak").textContent = `🔥 ${streak}`;
+}
+
+function grow(dx) {
+  $("btn-alive").firstChild.style.scale = 1 + Math.min(Math.max(dx, 0), 120) / 480;
+  $("btn-dead").firstChild.style.scale = 1 + Math.min(Math.max(-dx, 0), 120) / 480;
+}
+
+function showCard() {
+  hud(); locked = false; grow(0);
+  const c = deck[i], next = deck[i + 1];
+  if (next?.img) new Image().src = next.img; // précharge la photo suivante
+  $("stage").innerHTML = `
+    <div class="card" id="card">
+      <div class="stamp dead">MORT</div><div class="stamp alive">PAS MORT</div>
+      ${c.img ? `<img class="photo" src="${c.img}" alt="" onerror="this.outerHTML='<div class=face>${face()}</div>'">` : `<div class="face">${face()}</div>`}
+      <div class="name">${c.name}</div>
+      <div class="hint">Alors, il/elle respire encore ?</div>
+    </div>`;
+  drag($("card"));
+}
+
+function drag(card) {
+  let x0 = null, dx = 0;
+  const [dead, alive] = card.querySelectorAll(".stamp");
+  card.onpointerdown = e => { x0 = e.clientX; card.setPointerCapture(e.pointerId); card.style.transition = "none"; };
+  card.onpointermove = e => {
+    if (x0 === null) return;
+    dx = e.clientX - x0;
+    card.style.transform = `translateX(${dx}px) rotate(${dx / 15}deg)`;
+    alive.style.opacity = Math.max(0, -dx / 100); dead.style.opacity = Math.max(0, dx / 100);
+    grow(-dx);
+  };
+  card.onpointerup = card.onpointercancel = () => {
+    x0 = null;
+    if (Math.abs(dx) > 100) return answer(dx < 0);
+    card.style.transition = "transform .2s"; card.style.transform = "";
+    dead.style.opacity = alive.style.opacity = 0; dx = 0; grow(0);
+  };
+}
+
+function answer(saysAlive) {
+  if (locked || i >= ROUND) return;
+  locked = true;
+  const c = deck[i], isAlive = c.d === null, ok = saysAlive === isAlive;
+  const card = $("card");
+  card.style.transition = "transform .3s";
+  card.style.transform = `translateX(${saysAlive ? -600 : 600}px) rotate(${saysAlive ? -30 : 30}deg)`;
+  if (ok) { score++; streak++; best = Math.max(best, streak); } else streak = 0;
+  hud();
+  setTimeout(() => {
+    $("stage").innerHTML = `
+      <div class="result ${ok ? "ok" : "ko"}">
+        <div class="big">${ok ? "BIEN VU 😎" : "RATÉ 🤡"}</div>
+        <p>${c.name}</p>
+        <p>${isAlive ? "🫀 Toujours vivant(e), merci pour lui/elle." : `💀 Décédé(e) en ${c.d}. RIP.`}</p>
+      </div>`;
+    setTimeout(() => { i++; i < ROUND ? showCard() : end(); }, 1400);
+  }, 250);
+}
+
+function end() {
+  $("buttons").hidden = true;
+  const pct = score / ROUND;
+  const verdict = pct >= 0.9 ? "Nécrologue de génie 🏆" : pct >= 0.6 ? "Pas mal pour un vivant 👍" : pct >= 0.3 ? "Tu lis pas les journaux toi 📰" : "Toi-même t'es sûr d'être vivant ? 🧟";
+  $("stage").innerHTML = `
+    <div class="result ok">
+      <div class="big">${score}/${ROUND}</div>
+      <p>${verdict}</p><p>Meilleure série : 🔥 ${best}</p>
+      <button id="share">📣 Défier mes potes</button>
+      <button id="again">🔄 Rejouer</button>
+    </div>`;
+  $("again").onclick = menu;
+  $("share").onclick = async () => {
+    const text = `J'ai fait ${score}/${ROUND} à MORT ou PAS MORT ? 💀🫀 Fais mieux : ${GAME_URL}`;
+    try { await navigator.share({ text }); } catch {
+      try { await navigator.clipboard.writeText(text); $("share").textContent = "✅ Copié, colle-le à tes potes !"; }
+      catch { $("share").textContent = "😬 Copie impossible"; }
+    }
+  };
+}
+
+$("btn-dead").onclick = () => answer(false);
+$("btn-alive").onclick = () => answer(true);
+document.onkeydown = e => { if (e.key === "ArrowLeft") answer(true); if (e.key === "ArrowRight") answer(false); };
+menu();
+</script>
+</body>
+</html>
